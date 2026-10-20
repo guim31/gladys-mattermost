@@ -1,0 +1,6 @@
+{
+  "event": "hello",
+  "data": { "connection_id": "c", "server_version": "10" },
+  "broadcast": {},
+  "seq": 0
+}

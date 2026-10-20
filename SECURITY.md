@@ -30,6 +30,22 @@ Gladys before reporting a problem.
 
 In scope: the code of this repository and the Docker image it publishes.
 
+What the integration keeps and where:
+
+- The configuration (server address, bot token, allowed people, watched
+  channels) is stored by Gladys; the token is a `secret` field.
+- `/data/mattermost-state.json` holds the direct channel of each person the
+  bot talked to, the last time the connection was seen alive (to read back
+  what was posted during a cut), and the last 5 messages of the watched
+  channels (for the widget). No direct message is stored, nor the token.
+- The integration only talks to the configured Mattermost server (HTTPS or
+  HTTP, REST and WebSocket) and to Gladys. It never logs the token.
+
+The bot passes the messages of a linked person to Gladys with the authority of
+that Gladys user, and only for the usernames of the allowed list. The server
+of Mattermost can read every message, as for any Mattermost conversation.
+
 Out of scope: Gladys Assistant itself (see its
 [security policy](https://github.com/GladysAssistant/Gladys/security/policy)),
-and the third-party services and devices the integration talks to.
+and the third-party services and devices the integration talks to (the
+Mattermost server and its clients).

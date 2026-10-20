@@ -1,0 +1,7 @@
+{
+  "id": "api.context.session_expired.app_error",
+  "message": "Invalid or expired session, please login again.",
+  "detailed_error": "",
+  "request_id": "r",
+  "status_code": 401
+}

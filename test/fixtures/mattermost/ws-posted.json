@@ -1,0 +1,13 @@
+{
+  "event": "posted",
+  "data": {
+    "channel_display_name": "Garage",
+    "channel_name": "garage",
+    "channel_type": "O",
+    "post": "{}",
+    "sender_name": "@alice",
+    "team_id": "t"
+  },
+  "broadcast": {},
+  "seq": 1
+}
