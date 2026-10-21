@@ -1,13 +1,21 @@
 {
   "event": "posted",
   "data": {
-    "channel_display_name": "Garage",
+    "channel_display_name": "garage",
     "channel_name": "garage",
     "channel_type": "O",
-    "post": "{}",
+    "post": "{\"id\":\"p0stp0stp0stp0stp0stp0stp0\",\"create_at\":1792564920390,\"update_at\":1792564920390,\"edit_at\":0,\"delete_at\":0,\"is_pinned\":false,\"user_id\":\"a1icea1icea1icea1icea1icea\",\"channel_id\":\"garagegaragegaragegaragega\",\"root_id\":\"\",\"original_id\":\"\",\"message\":\"fixture message\",\"type\":\"\",\"props\":{},\"hashtags\":\"\",\"file_ids\":[],\"pending_post_id\":\"\",\"remote_id\":\"\",\"reply_count\":0,\"last_reply_at\":0,\"participants\":null,\"metadata\":{}}",
     "sender_name": "@alice",
-    "team_id": "t"
+    "set_online": true,
+    "team_id": "teamteamteamteamteamteamte"
   },
-  "broadcast": {},
+  "broadcast": {
+    "omit_users": null,
+    "user_id": "",
+    "channel_id": "garagegaragegaragegaragega",
+    "team_id": "",
+    "connection_id": "",
+    "omit_connection_id": ""
+  },
   "seq": 1
 }

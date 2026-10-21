@@ -64,6 +64,7 @@ export const CREDENTIALS_RETRY_MS = 5 * 60 * 1000;
 export const RECENT_KEPT = 5;
 // Post ids already handled: the WebSocket and the catch-up may both bring one.
 const SEEN_KEPT = 200;
+const SEEN_SAVED = 50;
 // Gladys waits 5 s for the ack of a message: answer before, even if the server is slow.
 export const MESSAGE_TIMEOUT_MS = 4500;
 // How long a message of Gladys waits for the first connection, within that deadline.
@@ -132,17 +133,22 @@ export function registerHandlers(gladys, options = {}) {
     pingIntervalMs,
     sleep = (ms, signal) =>
       new Promise((resolve) => {
-        const timer = setTimeout(resolve, ms);
-        signal.addEventListener('abort', () => {
+        const onAbort = () => {
           clearTimeout(timer);
           resolve();
-        });
+        };
+        const timer = setTimeout(() => {
+          signal.removeEventListener('abort', onAbort);
+          resolve();
+        }, ms);
+        signal.addEventListener('abort', onAbort, { once: true });
       }),
   } = options;
 
   let data = {}; // persisted: see save()
   const loaded = store.load().then((stored) => {
     data = stored ?? {};
+    seen = new Set(Array.isArray(data.seen) ? data.seen : []);
   });
 
   let config = normalizeConfig({});
@@ -158,11 +164,12 @@ export function registerHandlers(gladys, options = {}) {
   let running = null; // the running loop
   let stopped = false;
   let lastStatus = null;
+  let connectionKey = null; // server and token of the applied configuration
   let lostFired = false; // connection_lost was fired: connection_restored may follow
   let applying = Promise.resolve(); // configurations are applied one at a time
   let readyWaiters = []; // onSendMessage calls waiting for the first connection
   let lastAliveSave = 0;
-  const seen = new Set();
+  let seen = new Set(); // ids of the posts already handled, persisted (data.seen)
   const statusLog = createFailureLog(logger, { recovered: 'Connection status published again' });
   const socketLog = createFailureLog(logger, { recovered: 'Mattermost connection works again' });
   const brainLog = createFailureLog(logger, { recovered: 'Messages reach Gladys again' });
@@ -299,11 +306,15 @@ export function registerHandlers(gladys, options = {}) {
       return Promise.resolve();
     }
     return new Promise((resolve) => {
-      const timer = setTimeout(resolve, ms);
-      readyWaiters.push(() => {
+      const wake = () => {
         clearTimeout(timer);
         resolve();
-      });
+      };
+      const timer = setTimeout(() => {
+        readyWaiters = readyWaiters.filter((waiter) => waiter !== wake);
+        resolve();
+      }, ms);
+      readyWaiters.push(wake);
     });
   }
 
@@ -340,10 +351,16 @@ export function registerHandlers(gladys, options = {}) {
           onAlive: alive,
           ...(pingIntervalMs ? { pingIntervalMs } : {}),
         });
+        const openedAt = now();
+        const before = { failingSince, attempt };
         failingSince = null;
         attempt = 0;
         socketLog.ok();
-        logger.info(`Connected to Mattermost as @${me.username}`);
+        if (connection !== CONNECTION.CONNECTED) {
+          logger.info(`Connected to Mattermost as @${me.username}`);
+        } else {
+          logger.debug(`Reconnected to Mattermost as @${me.username}`);
+        }
         await markConnected();
         // Read back what was posted while the socket was down (a cut, a restart).
         if (since) {
@@ -352,6 +369,10 @@ export function registerHandlers(gladys, options = {}) {
         const reason = await socket.closed;
         if (signal.aborted) {
           return;
+        }
+        if (now() - openedAt < LOST_AFTER_MS && before.failingSince !== null) {
+          // A socket closed right after it opened: the failure goes on, never a busy loop.
+          ({ failingSince, attempt } = before);
         }
         throw new MattermostError(ERROR_KINDS.UNREACHABLE, `WebSocket closed (${reason})`);
       } catch (err) {
@@ -393,7 +414,11 @@ export function registerHandlers(gladys, options = {}) {
 
   /** Handles the posts of the watched channels and the direct messages since `since`. */
   async function catchUp(since, signal) {
-    const from = Math.max(since - 5000, now() - MAX_MESSAGE_AGE_MS);
+    // 30 s of overlap for a server clock behind ours; the ids already handled are skipped.
+    const from = Math.max(
+      Math.min(since, data.lastPostAt ?? since) - 30_000,
+      now() - MAX_MESSAGE_AGE_MS,
+    );
     const channels = new Map([...watched.keys()].map((id) => [id, 'O']));
     for (const channelId of Object.values(data.contactChannels ?? {})) {
       channels.set(channelId, 'D');
@@ -441,6 +466,11 @@ export function registerHandlers(gladys, options = {}) {
     if (seen.size > SEEN_KEPT) {
       seen.delete(seen.values().next().value);
     }
+    data.seen = [...seen].slice(-SEEN_SAVED);
+    if (Number.isFinite(post.create_at) && post.create_at > (data.lastPostAt ?? 0)) {
+      data.lastPostAt = post.create_at; // the clock of the server
+    }
+    save();
     if (!me || post.user_id === me.id) {
       return; // its own posts: no loop between a scene and its triggers
     }
@@ -450,6 +480,16 @@ export function registerHandlers(gladys, options = {}) {
     }
     if (post.type) {
       return; // a system message (joined the channel, header changed...)
+    }
+    const props = post.props ?? {};
+    if (
+      [props.from_webhook, props.from_bot, props.from_plugin].some(
+        (v) => v === true || v === 'true',
+      )
+    ) {
+      // Written by a webhook, a bot or a plugin in the name of the person: not the person.
+      logger.debug(`Post ${post.id} ignored: from a webhook, a bot or a plugin`);
+      return;
     }
     if (post.create_at < now() - MAX_MESSAGE_AGE_MS) {
       logger.debug(`Post ${post.id} skipped: too old`);
@@ -574,7 +614,11 @@ export function registerHandlers(gladys, options = {}) {
     watched = new Map();
     allowed = new Map();
     failures = [];
-    lostFired = false;
+    const previousKey = connectionKey;
+    connectionKey = `${config.server_url}|${config.access_token}`;
+    if (connectionKey !== previousKey) {
+      lostFired = false; // another server or token: a loss of the old one is not restored here
+    }
     const server = parseServer(config.server_url);
     if (!config.server_url) {
       configError = new MattermostError(ERROR_KINDS.NOT_CONFIGURED, 'No server address');
@@ -699,6 +743,9 @@ export function registerHandlers(gladys, options = {}) {
     const contactId = typeof contact?.id === 'string' ? contact.id : '';
     // Right after a start (the "Gladys updated" message), the bot may still be connecting.
     await whenConnected(CONNECT_WAIT_MS);
+    if (!me) {
+      requireConnected(); // throws: Gladys learns the message was not delivered
+    }
     if (!allowed.has(contactId)) {
       // Linked once, then removed from the allowed people: nothing goes out to them.
       logger.debug(
@@ -786,6 +833,7 @@ export function registerHandlers(gladys, options = {}) {
     async stop() {
       stopped = true;
       await stopLoop();
+      save();
       await store.flush();
     },
   };

@@ -109,9 +109,15 @@ export function createFakeServer() {
     }
     match = path.match(/^\/channels\/([^/]+)\/members\/([^/]+)$/);
     if (match) {
-      return server.members.get(match[1])?.has(match[2])
-        ? json(200, { channel_id: match[1], user_id: match[2] })
-        : error(404, 'app.channel.get_member.missing.app_error', 'No channel member found.');
+      if (server.members.get(match[1])?.has(match[2])) {
+        return json(200, { channel_id: match[1], user_id: match[2] });
+      }
+      // A real Mattermost answers 403 to a bot asking about a channel it is not in.
+      return error(
+        403,
+        'api.context.permissions.app_error',
+        'You do not have the appropriate permissions.',
+      );
     }
     match = path.match(/^\/channels\/([^/]+)\/members$/);
     if (method === 'POST' && match) {
@@ -242,7 +248,7 @@ export function createFakeServer() {
       this.sent.push(message);
       if (message.action === 'authentication_challenge') {
         if (!server.tokens.has(message.data?.token)) {
-          this.push({ status: 'FAIL', seq_reply: message.seq, error: { id: 'auth' } });
+          this.drop(1006); // a real Mattermost closes the socket without a reply
           return;
         }
         this.open = true;

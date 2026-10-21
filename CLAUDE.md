@@ -264,3 +264,18 @@ long, et sur un « Sie »/« Ihr… » de politesse en allemand. Le store exige 
   plus de 5 min, personnes non autorisées. Les modifications arrivent en `post_edited`, jamais lu.
 - Le robot doit être **membre de l'équipe** (sinon `channels/name` répond 404/403) ; il rejoint seul un canal
   public (`POST /channels/{id}/members`), pas un privé. `MaxPostSize` par défaut : 16 383 caractères.
+- **Vérifié contre un vrai Mattermost 12 (Team Edition + PostgreSQL, Docker, 21/10/2026)**, dans le bac à
+  sable (rootfs en lecture seule, `cap-drop ALL`, 256 Mo : ~80 Mo en charge, ~30 Mo au repos) : 26
+  contrôles dans les deux sens (déclencheurs, liaison, cerveau, réponse + image, action de scène, perte et
+  retour, rattrapage après arrêt, jeton refusé). Pièges payés :
+  - `GET /channels/{id}/members/{bot}` répond **403** (pas 404) quand le robot n'est pas dans un canal
+    public : c'est « pas membre », on le rejoint.
+  - Un mauvais jeton sur la WebSocket : le serveur **ferme sans répondre** (1006), pas de `FAIL` ; le
+    `hello` arrive **avant** le `seq_reply` du challenge.
+  - Les posts de webhooks entrants, de bots et de plugins portent le `user_id` de leur propriétaire :
+    ignorés (`props.from_webhook`, `from_bot`, `from_plugin`), sinon une URL de webhook suffit à parler au
+    cerveau au nom d'une personne autorisée.
+  - Créer un utilisateur sans jeton n'est permis que pour le premier compte (`no_open_server`).
+- Rattrapage borné par l'horloge du serveur (`lastPostAt`, `create_at` du dernier post) et les 50 derniers
+  identifiants traités, persistés : un redémarrage ne rejoue rien. `onSendMessage` lève une erreur tant que
+  le robot n'est pas connecté (Gladys sait que le message n'est pas parti).

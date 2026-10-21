@@ -128,7 +128,7 @@ test('a message in a watched channel fires the triggers, a command too', async (
   assert.equal(card.date, new Date(START).toISOString());
 });
 
-test('the bot obeys nobody else, and skips its own, system and old posts', async (t) => {
+test('the bot obeys nobody else, and skips its own, system, webhook and old posts', async (t) => {
   const world = await connected(t);
   await say(world, GARAGE, '!garage open', MALLORY_ID);
   await say(world, GARAGE, '!garage open', BOT_ID);
@@ -136,6 +136,9 @@ test('the bot obeys nobody else, and skips its own, system and old posts', async
   await say(world, GARAGE, '!garage open', ALICE_ID, {
     create_at: START - MAX_MESSAGE_AGE_MS - 1,
   });
+  // A webhook or a plugin writes in the name of its owner: not the person.
+  await say(world, GARAGE, '!garage open', ALICE_ID, { props: { from_webhook: 'true' } });
+  await say(world, GARAGE, '!garage open', ALICE_ID, { props: { from_bot: 'true' } });
   assert.deepEqual(world.fake.sceneEvents, []);
   assert.deepEqual(world.fake.messages, []);
 });
@@ -391,4 +394,29 @@ test('the scene data stays within 1000 characters', async (t) => {
       assert.ok(value.length <= 1000);
     }
   }
+});
+
+test('a restart reads back what was missed, never what was already handled', async (t) => {
+  const world = await connected(t);
+  const dm = await directChannel(world);
+  await say(world, GARAGE, '!door close');
+  await say(world, dm, 'first');
+  await world.app.stop();
+  world.clock.time += 1000;
+  world.server.publish(ALICE_ID, GARAGE, '!door open'); // while stopped
+  const again = await connected(t, { server: world.server, stored: world.store.data });
+  assert.deepEqual(
+    again.fake.sceneEvents.map((event) => event.data.text),
+    ['!door open', '!door open'],
+  );
+  assert.deepEqual(again.fake.messages, [], 'the direct message handled before is not replayed');
+});
+
+test('a message of Gladys while Mattermost is down is reported as not delivered', async (t) => {
+  const server = createFakeServer();
+  server.down = 'ECONNREFUSED';
+  const world = await createWorld({ server });
+  t.after(() => world.app.stop());
+  const ack = await world.fake.sendMessage({ id: ALICE_ID }, { text: 'Alarm', file: null });
+  assert.equal(ack.success, false);
 });

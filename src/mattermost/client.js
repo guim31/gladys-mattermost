@@ -77,11 +77,15 @@ function kindOf(status) {
 
 const sleep = (ms, signal) =>
   new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    signal?.addEventListener('abort', () => {
+    const onAbort = () => {
       clearTimeout(timer);
       resolve();
-    });
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
   });
 
 /** The wait a 429 asks for: Retry-After (seconds), else X-Ratelimit-Reset (seconds). */
@@ -240,7 +244,10 @@ export class MattermostClient {
     );
   }
 
-  /** True when the user is a member of the channel. */
+  /**
+   * True when the user is a member of the channel. Mattermost answers 403, not
+   * 404, when the bot asks about a public channel it is not in yet.
+   */
   async isMember(channelId, userId, { signal } = {}) {
     try {
       await this.request(
@@ -250,7 +257,10 @@ export class MattermostClient {
       );
       return true;
     } catch (err) {
-      if (err instanceof MattermostError && err.kind === ERROR_KINDS.NOT_FOUND) {
+      if (
+        err instanceof MattermostError &&
+        [ERROR_KINDS.NOT_FOUND, ERROR_KINDS.FORBIDDEN].includes(err.kind)
+      ) {
         return false;
       }
       throw err;

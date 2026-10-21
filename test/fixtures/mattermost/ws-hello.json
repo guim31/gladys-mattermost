@@ -1,6 +1,17 @@
 {
   "event": "hello",
-  "data": { "connection_id": "c", "server_version": "10" },
-  "broadcast": {},
+  "data": {
+    "connection_id": "c0nnecti0nc0nnecti0nc0nne",
+    "server_hostname": "mattermost",
+    "server_version": "12.0.0.38519854955.cef66700b770dcaa8afdaec807130a92bc13198bb07620336eae5fdc40c24ce1.false"
+  },
+  "broadcast": {
+    "omit_users": null,
+    "user_id": "a1icea1icea1icea1icea1icea",
+    "channel_id": "",
+    "team_id": "",
+    "connection_id": "",
+    "omit_connection_id": ""
+  },
   "seq": 0
 }

@@ -103,7 +103,10 @@ export function openSocket({
       openTimeoutMs,
     );
 
+    let challenged = false;
+    let answered = false; // the server answered the challenge (seq_reply or hello)
     socket.addEventListener('open', () => {
+      challenged = true;
       send('authentication_challenge', { token });
     });
 
@@ -114,6 +117,7 @@ export function openSocket({
       } catch {
         return;
       }
+      answered = true;
       if (data?.seq_reply !== undefined) {
         if (data.status === 'FAIL' && data.seq_reply === 1 && !opened) {
           close(new MattermostError(ERROR_KINDS.TOKEN, 'WebSocket authentication refused'));
@@ -155,6 +159,11 @@ export function openSocket({
     });
 
     socket.addEventListener('close', (event) => {
+      if (challenged && !answered) {
+        // A real Mattermost closes the socket, without a reply, on a refused token.
+        end(new MattermostError(ERROR_KINDS.TOKEN, 'WebSocket authentication refused'));
+        return;
+      }
       end(`code ${event?.code ?? 'unknown'}`);
     });
   });
