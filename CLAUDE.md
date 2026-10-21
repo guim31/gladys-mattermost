@@ -32,15 +32,18 @@ pushing.
 
 ```
 index.js                          SDK wiring only: handlers registered before connect()
-src/devices/index.js              registry of the device blueprints + dispatch helpers
-src/devices/<type>.js             one device type per file (buildDevice, onPoll, onSetValue...)
-src/scenes.js                     scene action handlers (manifest `scene_actions`)
-src/widgets.js                    dashboard widget handlers (manifest `widgets`)
+src/app.js                        the integration: connection loop, catch-up, linking, triggers,
+                                  scene action, onSendMessage, widget, test action
+src/mattermost/client.js          REST API v4 over fetch, typed errors (MattermostError.kind)
+src/mattermost/socket.js          the WebSocket: authentication challenge, ping, events
 src/config.js                     DEFAULT_CONFIG (mirrors the manifest defaults) + normalization
-src/weather.js                    example driver (Open-Meteo)
-gladys-assistant-integration.json manifest: name, config_schema, actions, image...
-docs/en.md, docs/fr.md            user documentation, re-hosted by Gladys (mandatory)
-test/                             node --test, against the SDK's fake Gladys (integration-sdk/testing)
+src/texts.js                      four-language texts outside the widget (status, report, bot)
+src/widgets.js                    the "mattermost" dashboard widget
+src/store.js, src/log.js          /data persistence (atomic writes), one-line repeated failures
+gladys-assistant-integration.json manifest: communication type, receive: true, triggers, action...
+docs/{en,fr,de,es}.md             user documentation, re-hosted by Gladys (mandatory)
+test/                             node --test, fake Gladys of the SDK + fake Mattermost (REST, WebSocket)
+test/fixtures/mattermost/         answers recorded from a real Mattermost Team Edition (ids replaced)
 .github/scripts/release.mjs       release helpers (manifest bump, changelog), tested in test/
 ```
 
@@ -70,8 +73,10 @@ test/                             node --test, against the SDK's fake Gladys (in
   `type: "provider"`: 5.1.0). `test/manifest.test.js` ties the manifest to the
   code (defaults, action, scene and widget handlers): change both sides
   together.
-- **User-facing text** is bilingual (English and French): action messages,
-  manifest texts, and `docs/en.md` / `docs/fr.md`, kept in sync.
+- **User-facing text** exists in English, French, German and Spanish: action
+  messages, manifest texts, what the bot writes, and `docs/en.md`,
+  `docs/fr.md`, `docs/de.md`, `docs/es.md`, kept in sync
+  (`test/i18n.test.js`).
 - **Style.** Prettier formats, ESLint catches mistakes. Comments explain why,
   in English. Tests never touch the network.
 
@@ -233,3 +238,44 @@ long, et sur un « Sie »/« Ihr… » de politesse en allemand. Le store exige 
 - Docs `en`, `fr`, `de`, `es` avec les mêmes sections.
 - Chauffe, ouverture, sécurité : ne rien rendre pilotable « comme un thermostat » ou par un assistant
   vocal quand une erreur serait dangereuse (leçon d'OctoPrint).
+
+## Mattermost (cette intégration)
+
+- **Même architecture que `guim31/gladys-matrix`** (type `communication`, `messaging.receive: true`, liaison
+  par code, `applyConfig` sérialisé, `connection_restored` seulement après un `connection_lost` émis, délai
+  unique de 4,5 s dans `onSendMessage`, journaux calmes) : lire son `CLAUDE.md`. `linkContact` et
+  `publishMessage` n'ont été vérifiés que contre le faux Gladys du SDK.
+- **Trois sortes de canaux** : ceux de la configuration (« surveillés ») ne servent qu'aux déclencheurs ; un
+  canal `D` (message direct, `channel_type` de l'événement `posted`) avec une personne autorisée est la
+  conversation avec Gladys ; tout le reste (`G` message de groupe, canal non surveillé) est ignoré. Pas de
+  liste de membres à contrôler comme dans Matrix : un canal `D` a toujours exactement deux membres.
+- **Personnes autorisées saisies par nom d'utilisateur**, résolues en identifiants à chaque connexion
+  (`POST /users/usernames`) ; `contact.id` = l'identifiant Mattermost (stable), `contact_name` = le nom. Un
+  utilisateur renommé n'est plus autorisé jusqu'à correction de la liste (choix sûr).
+- **WebSocket** : authentification par l'action `authentication_challenge` (premier `seq`), puis l'événement
+  `hello` ; le champ `post` de `posted` est une **chaîne JSON** à reparser. Ping applicatif toutes les 30 s
+  (`{"action":"ping"}` → `seq_reply`) : sans réponse au ping suivant, la socket est fermée et la boucle
+  reconnecte (REST puis WebSocket). Node 22 a un `WebSocket` global (undici) : aucune dépendance.
+- **Rattrapage** : la WebSocket ne rejoue rien. À la reconnexion, `GET /channels/{id}/posts?since=` sur les
+  canaux surveillés et les messages directs connus, depuis le dernier signe de vie (`lastSeen`, écrit dans
+  `/data` au plus une fois par minute), borné à 5 min ; dédoublonnage par identifiant de message (200
+  derniers). `since` renvoie aussi les messages modifiés : filtrer `create_at`.
+- Messages ignorés : ceux du robot (pas de boucle scène → déclencheur), `type` non vide (messages système),
+  plus de 5 min, personnes non autorisées. Les modifications arrivent en `post_edited`, jamais lu.
+- Le robot doit être **membre de l'équipe** (sinon `channels/name` répond 404/403) ; il rejoint seul un canal
+  public (`POST /channels/{id}/members`), pas un privé. `MaxPostSize` par défaut : 16 383 caractères.
+- **Vérifié contre un vrai Mattermost 12 (Team Edition + PostgreSQL, Docker, 21/10/2026)**, dans le bac à
+  sable (rootfs en lecture seule, `cap-drop ALL`, 256 Mo : ~80 Mo en charge, ~30 Mo au repos) : 26
+  contrôles dans les deux sens (déclencheurs, liaison, cerveau, réponse + image, action de scène, perte et
+  retour, rattrapage après arrêt, jeton refusé). Pièges payés :
+  - `GET /channels/{id}/members/{bot}` répond **403** (pas 404) quand le robot n'est pas dans un canal
+    public : c'est « pas membre », on le rejoint.
+  - Un mauvais jeton sur la WebSocket : le serveur **ferme sans répondre** (1006), pas de `FAIL` ; le
+    `hello` arrive **avant** le `seq_reply` du challenge.
+  - Les posts de webhooks entrants, de bots et de plugins portent le `user_id` de leur propriétaire :
+    ignorés (`props.from_webhook`, `from_bot`, `from_plugin`), sinon une URL de webhook suffit à parler au
+    cerveau au nom d'une personne autorisée.
+  - Créer un utilisateur sans jeton n'est permis que pour le premier compte (`no_open_server`).
+- Rattrapage borné par l'horloge du serveur (`lastPostAt`, `create_at` du dernier post) et les 50 derniers
+  identifiants traités, persistés : un redémarrage ne rejoue rien. `onSendMessage` lève une erreur tant que
+  le robot n'est pas connecté (Gladys sait que le message n'est pas parti).

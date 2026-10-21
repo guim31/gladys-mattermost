@@ -1,0 +1,10 @@
+{
+  "status": "OK",
+  "seq_reply": 2,
+  "data": {
+    "node_id": "",
+    "server_time": 1792564920381,
+    "text": "pong",
+    "version": "12.0.0"
+  }
+}

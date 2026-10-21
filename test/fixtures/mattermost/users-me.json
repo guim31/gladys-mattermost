@@ -1,0 +1,38 @@
+{
+  "id": "g1adysg1adysg1adysg1adysg1",
+  "create_at": 1792533842803,
+  "update_at": 1792533842978,
+  "delete_at": 0,
+  "username": "gladys",
+  "auth_service": "",
+  "email": "gladys@localhost",
+  "nickname": "",
+  "first_name": "Gladys",
+  "last_name": "",
+  "position": "",
+  "roles": "system_user",
+  "notify_props": {
+    "channel": "true",
+    "channel_mention_auto_follow_threads": "true",
+    "comments": "never",
+    "desktop": "mention",
+    "desktop_sound": "true",
+    "desktop_threads": "all",
+    "email": "true",
+    "email_threads": "all",
+    "first_name": "false",
+    "mention_keys": "",
+    "push": "mention",
+    "push_status": "online",
+    "push_threads": "all"
+  },
+  "last_password_update": 1792533842803,
+  "locale": "en",
+  "timezone": {
+    "automaticTimezone": "",
+    "manualTimezone": "",
+    "useAutomaticTimezone": "true"
+  },
+  "is_bot": true,
+  "disable_welcome_email": false
+}
