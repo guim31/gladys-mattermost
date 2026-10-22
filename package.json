@@ -1,6 +1,6 @@
 {
   "name": "gladys-mattermost",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Mattermost for Gladys Assistant: talk to Gladys from Mattermost, post to channels, run scenes on messages and commands.",
   "type": "module",
